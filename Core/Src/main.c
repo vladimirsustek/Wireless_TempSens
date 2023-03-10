@@ -30,6 +30,10 @@
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
 #include <string.h>
+
+#include "cli.h"
+#include "nrf24l01p_driver.h"
+#include "measurements.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -96,6 +100,8 @@ int main(void)
   MX_ADC1_Init();
   MX_USART1_UART_Init();
   MX_TIM1_Init();
+  MX_TIM2_Init();
+  MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
 
   /* Suspend tick as it is natively source of 1ms the ISR*/
@@ -118,23 +124,43 @@ int main(void)
     /* USER CODE BEGIN 3 */
 
 	  /* Disable interrupts as no further "wake-up" needed */
-	  __disable_irq();
+	  HAL_TIM_Base_Stop_IT(&htim1);
+	  HAL_TIM_Base_Start(&htim2);
 
-	  /* Reset timer to use it as a stopwatch  */
-	  htim1.Instance->CNT = 0;
+	  htim2.Instance->CNT = 0;
+	  while(htim2.Instance->CNT == 0);
+	  measurements_open();
+
+	  NRF_powerUp();
+
+	  htim2.Instance->CNT = 0;
+	  while(htim2.Instance->CNT < 350);
+
+	  uint32_t ch0, vref_int;
+	  if(measurement_get(&ch0, &vref_int))
+	  {
+		  printf("ch8 %ld\n"
+				  "vrefint %ld\r\n", ch0, vref_int);
+	  }
+	  measurements_close();
+
+	  printf("STATUS: 0x%02x\r\n", NRF_getSTATUS());
 
 	  /* LED on for some time - to see current consumption with LED on */
 	  HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
-	  while(htim1.Instance->CNT < 60);
+	  htim1.Instance->CNT = 0;
+	  while(htim2.Instance->CNT < 2000);
 	  HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
 
 	  /* Led off - to see current consumption of the core*/
-	  htim1.Instance->CNT = 0;
-	  while(htim1.Instance->CNT < 60);
+	  htim2.Instance->CNT = 0;
+	  while(htim2.Instance->CNT < 2000);
 
-	  /* Reset counter, enable IRQ again and go to sleep*/
-	  htim1.Instance->CNT = 0;
-	  __enable_irq();
+	  HAL_TIM_Base_Stop(&htim2);
+
+	  NRF_powerDown();
+
+	  HAL_TIM_Base_Start_IT(&htim1);
 	  HAL_PWR_EnterSLEEPMode(0, PWR_SLEEPENTRY_WFI);
   }
   /* USER CODE END 3 */
@@ -188,16 +214,11 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
 	if(htim->Instance == TIM1)
 	{
-		/* No action in IRQ needed in our case */
+		/* Placeholder for inserting a break point */
 		__NOP();
 	}
 }
 
-int _write(int file, char *ptr, int len)
-{
-	//HAL_UART_Transmit(&huart3, (uint8_t*)ptr, len, HAL_MAX_DELAY);
-	return len;
-}
 
 /* USER CODE END 4 */
 

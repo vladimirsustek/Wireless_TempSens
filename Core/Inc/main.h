@@ -59,28 +59,26 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define LED_Pin GPIO_PIN_13
 #define LED_GPIO_Port GPIOC
-#define NRF_IRQ_Pin GPIO_PIN_1
-#define NRF_IRQ_GPIO_Port GPIOA
-#define NRF_PWR_Pin GPIO_PIN_2
+#define NRF_PWR_Pin GPIO_PIN_1
 #define NRF_PWR_GPIO_Port GPIOA
+#define NRF_IRQ_Pin GPIO_PIN_2
+#define NRF_IRQ_GPIO_Port GPIOA
 #define NRF_CE_Pin GPIO_PIN_3
 #define NRF_CE_GPIO_Port GPIOA
-#define AD_XTC_Pin GPIO_PIN_0
-#define AD_XTC_GPIO_Port GPIOB
+#define NRF_NCS_Pin GPIO_PIN_4
+#define NRF_NCS_GPIO_Port GPIOA
+#define NRF_SCK_Pin GPIO_PIN_5
+#define NRF_SCK_GPIO_Port GPIOA
+#define NRF_MISO_Pin GPIO_PIN_6
+#define NRF_MISO_GPIO_Port GPIOA
+#define NRF_MOSI_Pin GPIO_PIN_7
+#define NRF_MOSI_GPIO_Port GPIOA
 #define TEMP_OS_Pin GPIO_PIN_1
 #define TEMP_OS_GPIO_Port GPIOB
 #define SENS_SCL_Pin GPIO_PIN_10
 #define SENS_SCL_GPIO_Port GPIOB
 #define SENS_SDA_Pin GPIO_PIN_11
 #define SENS_SDA_GPIO_Port GPIOB
-#define NRF_NCS_Pin GPIO_PIN_15
-#define NRF_NCS_GPIO_Port GPIOA
-#define NRF_SCK_Pin GPIO_PIN_3
-#define NRF_SCK_GPIO_Port GPIOB
-#define NRF_MISO_Pin GPIO_PIN_4
-#define NRF_MISO_GPIO_Port GPIOB
-#define NRF_MOSI_Pin GPIO_PIN_5
-#define NRF_MOSI_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 
