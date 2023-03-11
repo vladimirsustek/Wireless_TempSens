@@ -21,7 +21,7 @@
 #include "tim.h"
 
 /* USER CODE BEGIN 0 */
-
+#include <assert.h>
 /* USER CODE END 0 */
 
 TIM_HandleTypeDef htim1;
@@ -288,4 +288,48 @@ void HAL_TIM_OC_MspDeInit(TIM_HandleTypeDef* tim_ocHandle)
 
 /* USER CODE BEGIN 1 */
 
+
+void ms_tick_start()
+{
+	assert(HAL_OK == HAL_TIM_Base_Start(&htim2));
+}
+
+
+void ms_tick_stop()
+{
+	assert(HAL_OK == HAL_TIM_Base_Stop(&htim2));
+}
+
+
+void ms_delay(uint16_t delay)
+{
+	  htim2.Instance->CNT = 0;
+	  while(htim2.Instance->CNT < delay)
+	  {
+		  __NOP();
+	  }
+}
+
+
+void WakeUp_TIM_Stop()
+{
+	  HAL_TIM_Base_Stop_IT(&htim1);
+	  htim1.Instance->CNT = 0;
+}
+
+
+void WakeUp_TIM_Start()
+{
+	  HAL_TIM_Base_Start_IT(&htim1);
+}
+
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+	if(htim->Instance == TIM1)
+	{
+		/* Placeholder for inserting a break point */
+		__NOP();
+	}
+}
 /* USER CODE END 1 */

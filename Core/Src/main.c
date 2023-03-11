@@ -30,6 +30,8 @@
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
 #include <string.h>
+#include <assert.h>
+#include <stdbool.h>
 
 #include "cli.h"
 #include "nrf24l01p_driver.h"
@@ -38,7 +40,12 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-
+typedef struct payload
+{
+	uint32_t vdda;
+	uint32_t temp_ntc;
+	uint32_t temp_sens;
+}payload_t;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -74,6 +81,8 @@ void SystemClock_Config(void);
 int main(void)
 {
   /* USER CODE BEGIN 1 */
+	static_assert(sizeof(payload_t) <= PAYLOAD_MAX);
+	payload_t payload = {0};
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -120,47 +129,77 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-
     /* USER CODE BEGIN 3 */
 
-	  /* Disable interrupts as no further "wake-up" needed */
-	  HAL_TIM_Base_Stop_IT(&htim1);
-	  HAL_TIM_Base_Start(&htim2);
-
-	  htim2.Instance->CNT = 0;
-	  while(htim2.Instance->CNT == 0);
+	  /* Disable and reset timer which woke up the processor */
+	  WakeUp_TIM_Stop();
+	  /* Start ms timer for blocking delay purposes */
+	  HAL_ResumeTick();
+	  /* wait until ARM and external sensor boots up */
+	  HAL_Delay(5);
+	  /* Start measurements (Automatic DMA, TIM3 triggered) */
 	  measurements_open();
-
+#ifdef EXT_SENSOR
+	  /* TODO: add external sensor*/
+	  ext_measurements_open();
+#endif
+	  /* Power up NRF24L01+ chip */
 	  NRF_powerUp();
 
-	  htim2.Instance->CNT = 0;
-	  while(htim2.Instance->CNT < 350);
+	  /* Wait some time to:
+	   * 1) 103ms boot up time for the NRF24L01+
+	   * 2) 1/50Hz*16 = 320ms */
+	  HAL_Delay(350);
 
-	  uint32_t ch0, vref_int;
-	  if(measurement_get(&ch0, &vref_int))
+	  /* Configure NRF as a transmitter */
+	  NRF_configure(true);
+
+	  /* Get measurement when ready*/
+
+#ifdef EXT_SENSOR
+	  /* TODO: add external sensor*/
+	  ext_measurements_get();
+#endif
+
+	  if(measurement_get(&payload.temp_ntc, &payload.vdda))
 	  {
-		  printf("ch8 %ld\n"
-				  "vrefint %ld\r\n", ch0, vref_int);
+		  printf("ch0 %ld\n"
+				  "vrefint %ld\r\n",
+				  payload.temp_ntc,
+				  payload.vdda);
+
+		  /* Prepare payload for transmitting */
+		  NRF_setW_TX_PAYLOAD((uint8_t*)&payload, sizeof(payload_t));
 	  }
+	  else
+	  {
+		  printf("Measurement not ready\r\n");
+
+		  payload.temp_ntc = 0xDEADBEEF;
+		  payload.vdda = 0xDEADBEEF;
+		  payload.temp_sens = 0xDEADBEEF;
+
+		  /* Prepare payload for transmitting - error DEADBEEF constant */
+		  NRF_setW_TX_PAYLOAD((uint8_t*)&payload, sizeof(payload_t));
+
+	  }
+
+	  NRF_CEactivate();
+	  HAL_Delay(100);
+	  NRF_CEdeactivate();
+	  printf("NRF STATUS: 0x%02x\r\n", NRF_getSTATUS());
+
+	  /* Disable unneeded devices to reduce consumption */
 	  measurements_close();
-
-	  printf("STATUS: 0x%02x\r\n", NRF_getSTATUS());
-
-	  /* LED on for some time - to see current consumption with LED on */
-	  HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
-	  htim1.Instance->CNT = 0;
-	  while(htim2.Instance->CNT < 2000);
-	  HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
-
-	  /* Led off - to see current consumption of the core*/
-	  htim2.Instance->CNT = 0;
-	  while(htim2.Instance->CNT < 2000);
-
-	  HAL_TIM_Base_Stop(&htim2);
-
+#ifdef EXT_SENSOR
+	  /* TODO: add external sensor*/
+	  ext_measurements_clos();
+#endif
+	  HAL_SuspendTick();
 	  NRF_powerDown();
 
-	  HAL_TIM_Base_Start_IT(&htim1);
+	  /* Enable wake-up timer and go to the sleep */
+	  WakeUp_TIM_Start();
 	  HAL_PWR_EnterSLEEPMode(0, PWR_SLEEPENTRY_WFI);
   }
   /* USER CODE END 3 */
@@ -210,16 +249,6 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
-{
-	if(htim->Instance == TIM1)
-	{
-		/* Placeholder for inserting a break point */
-		__NOP();
-	}
-}
-
-
 /* USER CODE END 4 */
 
 /**
