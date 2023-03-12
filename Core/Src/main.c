@@ -28,7 +28,6 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include <stdio.h>
 #include <string.h>
 #include <assert.h>
 #include <stdbool.h>
@@ -161,19 +160,24 @@ int main(void)
 	  ext_measurements_get();
 #endif
 
+	  printf("-------------------\r\n");
 	  if(measurement_get(&payload.temp_ntc, &payload.vdda))
 	  {
-		  printf("ch0 %ld\n"
-				  "vrefint %ld\r\n",
+		  payload.temp_sens++;
+
+		  DEBUG_PRINT("\r\nch0 %ld\n"
+				  "vrefint %ld\n"
+				  "cycle num %ld\r\n",
 				  payload.temp_ntc,
-				  payload.vdda);
+				  payload.vdda,
+				  payload.temp_sens);
 
 		  /* Prepare payload for transmitting */
 		  NRF_setW_TX_PAYLOAD((uint8_t*)&payload, sizeof(payload_t));
 	  }
 	  else
 	  {
-		  printf("Measurement not ready\r\n");
+		  DEBUG_PRINT("Measurement not ready\r\n");
 
 		  payload.temp_ntc = 0xDEADBEEF;
 		  payload.vdda = 0xDEADBEEF;

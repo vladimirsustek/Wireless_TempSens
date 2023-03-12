@@ -6,6 +6,8 @@
  */
 #include <assert.h>
 
+#include "cli.h"
+
 #include "measurements.h"
 
 #include "adc.h"
@@ -47,7 +49,7 @@ void measurements_close()
 	assert(HAL_OK == HAL_ADC_Stop(&hadc1));
 }
 
-bool measurement_get(uint32_t* ch, uint32_t* vreft_int)
+bool measurement_get(uint32_t* ch, uint32_t* vdda)
 {
 	if(!conv_done)
 	{
@@ -55,30 +57,53 @@ bool measurement_get(uint32_t* ch, uint32_t* vreft_int)
 	}
 	else
 	{
-		HAL_NVIC_DisableIRQ(DMA1_Channel1_IRQn);
 		conv_done = 0;
 	}
 
 	assert(ch != NULL);
-	assert(vreft_int != NULL);
+	assert(vdda != NULL);
 
-	uint32_t aux_ch = 0, aux_vrefint = 0;
+	uint32_t aux_ch = 0, aux_vdda = 0;
 
 	/* Accumulating */
-	for(uint32_t idx = 0; idx <= ADC_BUFFER_SIZE; idx+=2)
+	for(uint32_t idx = 0; idx < ADC_BUFFER_SIZE; idx+=2)
 	{
+		DEBUG_PRINT("ch[%lu] = %lu\n"
+				"vdda[%lu] = %lu\r\n",
+				idx + ADC1_RANK_1,
+				adc_buffer[idx + ADC1_RANK_1],
+				idx + ADC1_RANK_2,
+				adc_buffer[idx + ADC1_RANK_2]);
 		aux_ch += adc_buffer[idx + ADC1_RANK_1];
-		aux_vrefint += adc_buffer[idx + ADC1_RANK_2];
+		aux_vdda += adc_buffer[idx + ADC1_RANK_2];
 	}
+
+	DEBUG_PRINT("\r\naux_ch %lu\n"
+			"aux_vdda %lu\r\n",
+			aux_ch,
+			aux_vdda);
 
 	/* Averaging (when ADC_BUFFER_SIZE is 8)*/
 	aux_ch = aux_ch >> 3;
-	aux_vrefint = aux_vrefint >> 3;
+	aux_vdda = aux_vdda >> 3;
 
-	*ch = (aux_ch*VDDA_NOM)/ADC_MAX;
-	*vreft_int = (ADC_MAX*EST_VREFINT)/(aux_vrefint);
+	DEBUG_PRINT( "\r\naux_ch >> 3 %lu\n"
+			"aux_vdda >> 3 %lu\r\n",
+			aux_ch,
+			aux_vdda);
 
-	HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
+	aux_vdda = (ADC_MAX*EST_VREFINT)/(aux_vdda);
+	aux_ch = (aux_ch*aux_vdda)/ADC_MAX;
+
+	DEBUG_PRINT( "\r\nvdda %lu\n"
+			"ch %lu\r\n",
+			aux_vdda,
+			aux_ch);
+
+	*ch = aux_ch;
+	*vdda = aux_vdda;
+
+	assert(HAL_OK == HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_buffer, ADC_BUFFER_SIZE));
 
 	return true;
 }
@@ -90,6 +115,7 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 	if(hadc->Instance == ADC1)
 	{
 			conv_done = 1;
+			HAL_ADC_Stop(&hadc1);
 	}
 }
 

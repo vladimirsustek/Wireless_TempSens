@@ -8,7 +8,15 @@
 #ifndef CLI_H_
 #define CLI_H_
 
+#include <stdio.h>
+
 #include "usart.h"
+#ifdef DEBUG
+#define DEBUG_PRINT(...) printf(__VA_ARGS__)
+#else
+#define DEBUG_PRINT(...)
+#endif
+
 
 #define CLI_BUFF_SIZE (uint32_t)(128)
 
