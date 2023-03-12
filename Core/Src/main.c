@@ -108,7 +108,6 @@ int main(void)
   MX_ADC1_Init();
   MX_USART1_UART_Init();
   MX_TIM1_Init();
-  MX_TIM2_Init();
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
 
@@ -128,6 +127,7 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
+
     /* USER CODE BEGIN 3 */
 
 	  /* Disable and reset timer which woke up the processor */
@@ -191,7 +191,7 @@ int main(void)
 	  NRF_CEactivate();
 	  HAL_Delay(100);
 	  NRF_CEdeactivate();
-	  printf("NRF STATUS: 0x%02x\r\n", NRF_getSTATUS());
+	  DEBUG_PRINT("NRF STATUS: 0x%02x\r\n", NRF_getSTATUS());
 
 	  /* Disable unneeded devices to reduce consumption */
 	  measurements_close();
