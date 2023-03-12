@@ -115,7 +115,7 @@ int main(void)
   HAL_SuspendTick();
 
   /* Start a timer waking up the MCU*/
-  HAL_TIM_Base_Start_IT(&htim1);
+  WakeUp_TIM_Start();
 
   /* Go to the sleep mode*/
   HAL_PWR_EnterSLEEPMode(0, PWR_SLEEPENTRY_WFI);
