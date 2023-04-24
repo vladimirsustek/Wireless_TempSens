@@ -16,6 +16,6 @@ void measurement_critical_enter();
 void measurement_critical_exit();
 bool is_measurement_critical();
 void measurements_close();
-bool measurement_get(uint32_t* ch, uint32_t* vreft_int);
+bool measurement_get();
 
 #endif /* MEASUREMENTS_H_ */

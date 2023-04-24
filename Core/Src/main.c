@@ -70,7 +70,7 @@ void SystemClock_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+uint16_t lm75ad_adr = 0b01001111;
 /* USER CODE END 0 */
 
 /**
@@ -103,22 +103,66 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_DMA_Init();
-  MX_I2C2_Init();
   MX_SPI1_Init();
   MX_ADC1_Init();
   MX_USART1_UART_Init();
   MX_TIM1_Init();
   MX_TIM3_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
 
   /* Suspend tick as it is natively source of 1ms the ISR*/
-  HAL_SuspendTick();
+  //HAL_SuspendTick();
 
   /* Start a timer waking up the MCU*/
-  WakeUp_TIM_Start();
+  //WakeUp_TIM_Start();
 
   /* Go to the sleep mode*/
-  HAL_PWR_EnterSLEEPMode(0, PWR_SLEEPENTRY_WFI);
+  //HAL_PWR_EnterSLEEPMode(0, PWR_SLEEPENTRY_WFI);
+
+  nrfport_powerUp();
+
+  measurements_open();
+
+  if(HAL_OK == HAL_I2C_IsDeviceReady(&hi2c1,
+		  lm75ad_adr << 1, 1, 100))
+  {
+	  printf("SENSOR READY\n");
+  }
+
+  while(1)
+  {
+
+	  uint8_t data[2] = {0};
+
+	  /* Read LM75AD temperature data */
+	  if(HAL_OK == HAL_I2C_Master_Receive(&hi2c1,
+			  lm75ad_adr << 1, data, 2, 100))
+	  {
+		  /* Get internal ADC result */
+		  measurement_get();
+
+		  /* Get two 8-bit values */
+		  uint32_t temp = ((uint32_t)data[0] << 8) | data[1];
+
+		  /* Omit last 5-bits as they are not used*/
+		  temp = temp >> 5;
+
+		  if(temp & (1 << 11))
+		  {
+			  temp = (temp << 7) - (temp << 1) - (temp);
+		  }
+		  else
+		  {
+			  /* Todo finish minus temperature*/
+			  temp = (temp << 7) - (temp << 1) - (temp);
+		  }
+
+		  printf("TMPS %ld\r\n", temp);
+
+	  }
+	  HAL_Delay(1000);
+  }
 
   /* USER CODE END 2 */
 

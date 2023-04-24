@@ -154,7 +154,7 @@ void nrfport_ceLow(void)
 void nrfport_powerUp(void)
 {
 	/* P-FET implementation */
-	HAL_GPIO_WritePin(NRF_PWR_GPIO_Port, NRF_PWR_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(PWR_3V3_GPIO_Port, PWR_3V3_Pin, GPIO_PIN_RESET);
 }
 
 /**
@@ -163,7 +163,7 @@ void nrfport_powerUp(void)
 void nrfport_powerDown(void)
 {
 	/* P-FET implementation */
-	HAL_GPIO_WritePin(NRF_PWR_GPIO_Port, NRF_PWR_Pin, GPIO_PIN_SET);
+	HAL_GPIO_WritePin(PWR_3V3_GPIO_Port, PWR_3V3_Pin, GPIO_PIN_SET);
 }
 
 
