@@ -2,7 +2,7 @@
 #include "ext_measurements.h"
 #include "cli.h"
 
-uint16_t LM75AD_ReadTempReg(Measurement_t* measurement)
+uint16_t ExtMeas_LM75AD_GetTemp(Measurement_t* measurement)
 {
 
 const uint32_t MAX_TIMEOUT = 100;

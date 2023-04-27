@@ -33,8 +33,8 @@
 #include <stdbool.h>
 
 #include "cli.h"
+#include "measurement_defines.h"
 #include "nrf24l01p_driver.h"
-#include "defines.h"
 #include "int_measurements.h"
 #include "ext_measurements.h"
 /* USER CODE END Includes */
@@ -131,7 +131,7 @@ int main(void)
 	  HAL_ResumeTick();
 
 	  /* Start measurements (Automatic DMA, TIM3 triggered) */
-	  measurements_open();
+	  IntMeas_Open();
 
 	  /* Power up NRF24L01+ chip */
 
@@ -144,8 +144,8 @@ int main(void)
 	  NRF_configure(true);
 
 	  /* Get measurement when ready*/
-	  measurement_get(&payload);
-	  LM75AD_ReadTempReg(&payload);
+	  IntMeas_Get(&payload);
+	  ExtMeas_LM75AD_GetTemp(&payload);
 
 	  NRF_setW_TX_PAYLOAD((uint8_t*)&payload, sizeof(Payload_t));
 
@@ -155,7 +155,7 @@ int main(void)
 	  DEBUG_PRINT("NRF STATUS: 0x%02x\r\n", NRF_getSTATUS());
 
 	  /* Disable unneeded devices to reduce consumption */
-	  measurements_close();
+	  IntMeas_Close();
 	  HAL_SuspendTick();
 
 	  Board_3V3PWR_Down();

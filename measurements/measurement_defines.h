@@ -1,5 +1,5 @@
-#ifndef DEFINES_H_
-#define DEFINES_H_
+#ifndef MEASUREMENT_DEFINES_H_
+#define MEASUREMENT_DEFINES_H_
 
 #include <stdint.h>
 
@@ -14,4 +14,4 @@ typedef struct Measurement
 	int32_t tmpe;
 }Measurement_t;
 
-#endif /* DEFINES_H_ */
+#endif /* MEASUREMENT_DEFINES_H_ */

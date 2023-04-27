@@ -98,21 +98,22 @@ const TempRes NTC_10K_LUT[NTC_10K_LUT_LNG] = {
 		{	1550000	,	117	},
 };
 
-void measurements_open()
+void IntMeas_Open()
 {
 	/* Start the timer and start a TIM-triggered endless DMA conversion */
 	assert(HAL_OK == HAL_TIM_Base_Start(&htim3));
 	assert(HAL_OK == HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_buffer, ADC_BUFFER_SIZE));
 }
 
-void measurements_close()
+void IntMeas_Close()
 {
 	/* Stop timer and the ADC */
 	assert(HAL_OK == HAL_TIM_Base_Stop(&htim3));
 	assert(HAL_OK == HAL_ADC_Stop(&hadc1));
 }
 
-bool measurement_get(Measurement_t* measurement)
+
+bool IntMeas_Get(Measurement_t* measurement)
 {
 	if(!conv_done || measurement == NULL)
 	{
@@ -206,16 +207,6 @@ bool measurement_get(Measurement_t* measurement)
 }
 
 
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
-{
-
-	if(hadc->Instance == ADC1)
-	{
-			conv_done = 1;
-			HAL_ADC_Stop(&hadc1);
-	}
-}
-
 static int32_t getNTCresistance(uint32_t adc_raw, uint32_t r_ref)
 {
 	/*  --o----- V_DDA
@@ -276,6 +267,7 @@ static int32_t getNTCresistance(uint32_t adc_raw, uint32_t r_ref)
     return (int32_t)(temp / (1024 - subfraction));
 }
 
+
 static int32_t lookUpNtcTemperature(uint32_t interp_x)
 {
     for (uint32_t idx = 0; idx < NTC_10K_LUT_LNG - 1; idx++) {
@@ -298,4 +290,15 @@ static int32_t lookUpNtcTemperature(uint32_t interp_x)
         }
     }
     return INT32_MIN;
+}
+
+
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
+{
+
+	if(hadc->Instance == ADC1)
+	{
+			conv_done = 1;
+			HAL_ADC_Stop(&hadc1);
+	}
 }
