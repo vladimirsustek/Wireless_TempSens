@@ -1,14 +1,8 @@
-/*
- * measurements.c
- *
- *  Created on: Mar 3, 2023
- *      Author: 42077
- */
 #include <assert.h>
+#include <int_measurements.h>
+#include <string.h>
 
 #include "cli.h"
-
-#include "measurements.h"
 
 #include "adc.h"
 #include "tim.h"
@@ -16,6 +10,9 @@
 #include "stm32f1xx.h"
 
 #define ADC_BUFFER_SIZE 6*8
+
+#define OA_SENSE 0
+#define NTC_RESISTANCE 1
 
 /* Datasheet stm32f103cb.pdf, page 78 */
 #define AVG_SLOPE (uint32_t)(4300) /* Converted to uV/°C */
@@ -40,42 +37,66 @@ static volatile uint32_t conv_done = 0;
 static int32_t getNTCresistance(uint32_t adc_raw, uint32_t r_ref);
 static int32_t lookUpNtcTemperature(uint32_t interp_x);
 
-#ifndef STM32F1
-#error VALID ONLY FOR STM32F103C8T6
-#endif
-
 typedef struct {
+	/*  in m°C*/
     int32_t temp;
+    /* in Ohms */
     int32_t res;
 } TempRes;
 
-#define NTC_10K_LUT_LNG 131
 
+/* TDK (EPCOS) B57164K0103K NTC, page 9, variant 2904
+ * datasheet docs/dsh.118-010.1.pdf */
+
+#define NTC_10K_LUT_LNG 43
 #define NTC_10K_RREF 10000
 
-const TempRes NTC_10K_LUT[NTC_10K_LUT_LNG] = { { -30000, 122840 }, { -29000, 116400 }, { -28000, 110340 },
-    { -27000, 104630 }, { -26000, 99250 }, { -25000, 94180 }, { -24000, 89400 }, { -23000, 84890 }, { -22000, 80640 },
-    { -21000, 76620 }, { -20000, 72830 }, { -19000, 69250 }, { -18000, 65870 }, { -17000, 62670 }, { -16000, 59600 },
-    { -15000, 56780 }, { -14000, 54080 }, { -13000, 51510 }, { -12000, 49090 }, { -11000, 46790 }, { -10000, 44620 },
-    { -9000, 42550 }, { -8000, 40600 }, { -7000, 38750 }, { -6000, 36990 }, { -5000, 35320 }, { -4000, 33740 },
-    { -3000, 32230 }, { -2000, 30810 }, { -1000, 29450 }, { 0, 28160 }, { 1000, 26920 }, { 2000, 25760 },
-    { 3000, 24650 }, { 4000, 23600 }, { 5000, 22600 }, { 6000, 21640 }, { 7000, 20740 }, { 8000, 19870 },
-    { 9000, 19050 }, { 10000, 18270 }, { 11000, 17510 }, { 12000, 16800 }, { 13000, 16120 }, { 14000, 15470 },
-    { 15000, 14850 }, { 16000, 14260 }, { 17000, 13700 }, { 18000, 13160 }, { 19000, 12640 }, { 20000, 12160 },
-    { 21000, 11680 }, { 22000, 11230 }, { 23000, 10800 }, { 24000, 10390 }, { 25000, 10000 }, { 26000, 9624 },
-    { 27000, 9265 }, { 28000, 8921 }, { 29000, 8591 }, { 30000, 8276 }, { 31000, 7973 }, { 32000, 7684 },
-    { 33000, 7406 }, { 34000, 7140 }, { 35000, 6885 }, { 36000, 6641 }, { 37000, 6406 }, { 38000, 6181 },
-    { 39000, 5965 }, { 40000, 5758 }, { 41000, 5559 }, { 42000, 5368 }, { 43000, 5185 }, { 44000, 5008 },
-    { 45000, 4839 }, { 46000, 4676 }, { 47000, 4520 }, { 48000, 4370 }, { 49000, 4225 }, { 50000, 4086 },
-    { 51000, 3953 }, { 52000, 3824 }, { 53000, 3700 }, { 54000, 3581 }, { 55000, 3467 }, { 56000, 3356 },
-    { 57000, 3250 }, { 58000, 3147 }, { 59000, 3049 }, { 60000, 2954 }, { 61000, 2862 }, { 62000, 2774 },
-    { 63000, 2689 }, { 64000, 2607 }, { 65000, 2528 }, { 66000, 2451 }, { 67000, 2378 }, { 68000, 2306 },
-    { 69000, 2238 }, { 70000, 2172 }, { 71000, 2108 }, { 72000, 2046 }, { 73000, 1986 }, { 74000, 1929 },
-    { 75000, 1873 }, { 76000, 1820 }, { 77000, 1768 }, { 78000, 1717 }, { 79000, 1669 }, { 80000, 1622 },
-    { 81000, 1577 }, { 82000, 1533 }, { 83000, 1490 }, { 84000, 1449 }, { 85000, 1410 }, { 86000, 1371 },
-    { 87000, 1334 }, { 88000, 1298 }, { 89000, 1263 }, { 90000, 1229 }, { 91000, 1197 }, { 92000, 1165 },
-    { 93000, 1134 }, { 94000, 1105 }, { 95000, 1076 }, { 96000, 1048 }, { 97000, 1021 }, { 98000, 995 }, { 99000, 969 },
-    { 100000, 945 } };
+const TempRes NTC_10K_LUT[NTC_10K_LUT_LNG] = {
+		/* m°C             Ohms*/
+		{	-550000	,	1214600	},
+		{	-500000	,	844390	},
+		{	-450000	,	592430	},
+		{	-400000	,	419380	},
+		{	-350000	,	299470	},
+		{	-300000	,	215670	},
+		{	-250000	,	156410	},
+		{	-200000	,	114660	},
+		{	-150000	,	84510	},
+		{	-100000	,	62927	},
+		{	-50000	,	47077	},
+		{	0	,	35563	},
+		{	50000	,	27119	},
+		{	100000	,	20860	},
+		{	150000	,	16204	},
+		{	200000	,	12683	},
+		{	250000	,	10000	},
+		{	300000	,	7942	},
+		{	350000	,	6326	},
+		{	400000	,	5074	},
+		{	450000	,	4102	},
+		{	500000	,	3336	},
+		{	550000	,	2724	},
+		{	600000	,	2237	},
+		{	650000	,	1845	},
+		{	700000	,	1530	},
+		{	750000	,	1275	},
+		{	800000	,	1067	},
+		{	850000	,	899	},
+		{	900000	,	760	},
+		{	950000	,	645	},
+		{	1000000	,	549	},
+		{	1050000	,	470	},
+		{	1100000	,	403	},
+		{	1150000	,	347	},
+		{	1200000	,	300	},
+		{	1250000	,	260	},
+		{	1300000	,	226	},
+		{	1350000	,	197	},
+		{	1400000	,	172	},
+		{	1450000	,	151	},
+		{	1500000	,	133	},
+		{	1550000	,	117	},
+};
 
 void measurements_open()
 {
@@ -91,9 +112,9 @@ void measurements_close()
 	assert(HAL_OK == HAL_ADC_Stop(&hadc1));
 }
 
-bool measurement_get()
+bool measurement_get(Measurement_t* measurement)
 {
-	if(!conv_done)
+	if(!conv_done || measurement == NULL)
 	{
 		return false;
 	}
@@ -104,10 +125,10 @@ bool measurement_get()
 
 	int32_t ntc2 = 0;
 	int32_t ntc1 = 0;
-	uint32_t oagp = 0;
-	uint32_t curr = 0;
-	uint32_t temp = 0;
-	uint32_t vdda = 0;
+	int32_t oagp = 0;
+	int32_t curr = 0;
+	int32_t tmpi = 0;
+	int32_t vdda = 0;
 
 	/* Accumulating */
 	for(uint32_t idx = 0; idx < ADC_BUFFER_SIZE; idx+=6)
@@ -116,7 +137,7 @@ bool measurement_get()
 		ntc1 += adc_buffer[ADC1_RANK_2];
 		oagp += adc_buffer[ADC1_RANK_3];
 		curr += adc_buffer[ADC1_RANK_4];
-		temp += adc_buffer[ADC1_RANK_5];
+		tmpi += adc_buffer[ADC1_RANK_5];
 		vdda += adc_buffer[ADC1_RANK_6];
 	}
 
@@ -125,7 +146,7 @@ bool measurement_get()
 	ntc1 = ntc1 >> 3;
 	oagp = oagp >> 3;
 	curr = curr >> 3;
-	temp = temp >> 3;
+	tmpi = tmpi >> 3;
 	vdda = vdda >> 3;
 
 	/* Get real VDDA 3V3 */
@@ -134,31 +155,50 @@ bool measurement_get()
 	/* Get voltages of other channels (2^11) = 4096 */
 	oagp = (vdda*oagp) >> 12;
 	curr = (vdda*curr) >> 12;
-	temp = (vdda*temp) >> 12;
+	tmpi = (vdda*tmpi) >> 12;
+
+	DEBUG_PRINT("NTC2 %ld\n", (vdda*ntc2) >> 12);
+	DEBUG_PRINT("NTC1 %ld\n", (vdda*ntc1) >> 12);
 
 	/* Get interpolated temperature from the NTCs*/
 	ntc2 = getNTCresistance(ntc2, NTC_10K_RREF);
+#if NTC_RESISTANCE
+	DEBUG_PRINT("NTC2 %ld\n", ntc2);
+#endif
 	ntc2 = lookUpNtcTemperature(ntc2);
 	ntc1 = getNTCresistance(ntc1, NTC_10K_RREF);
+#if NTC_RESISTANCE
+	DEBUG_PRINT("NTC1 %ld\n", ntc1);
+#endif
 	ntc1 = lookUpNtcTemperature(ntc1);
 
 	/* Get MCU-internal-sensor temperature */
-	temp = ((V25 - temp*1000)/AVG_SLOPE) + 25;
+	tmpi = ((V25 - tmpi*1000)/AVG_SLOPE) + 25;
 
 	DEBUG_PRINT(
-			"-------\n"
 			"NTC2 %ld\n"
 			"NTC1 %ld\n"
+#if OA_SENSE
 			"OAGP %ld\n"
 			"CURR %ld\n"
+#endif
 			"TMPI %ld\n"
 			"VREF %ld\r\n",
 			ntc2,
 			ntc1,
+#if OA_SENSE
 			oagp,
 			curr,
-			temp,
+#endif
+			tmpi,
 			vdda);
+
+	measurement->ntc2 = ntc2;
+	measurement->ntc1 = ntc1;
+	measurement->oagp = oagp;
+	measurement->curr = curr;
+	measurement->tmpi = tmpi;
+	measurement->vdda = vdda;
 
 	assert(HAL_OK == HAL_ADC_Start_DMA(&hadc1, (uint32_t*)adc_buffer, ADC_BUFFER_SIZE));
 

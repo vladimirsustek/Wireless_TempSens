@@ -34,17 +34,14 @@
 
 #include "cli.h"
 #include "nrf24l01p_driver.h"
-#include "measurements.h"
+#include "defines.h"
+#include "int_measurements.h"
+#include "ext_measurements.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
-typedef struct payload
-{
-	uint32_t vdda;
-	uint32_t temp_ntc;
-	uint32_t temp_sens;
-}payload_t;
+typedef Measurement_t Payload_t;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -53,7 +50,6 @@ typedef struct payload
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -65,12 +61,12 @@ typedef struct payload
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
-
+void Board_3V3PWR_Up();
+void Board_3V3PWR_Down();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-uint16_t lm75ad_adr = 0b01001111;
 /* USER CODE END 0 */
 
 /**
@@ -80,8 +76,8 @@ uint16_t lm75ad_adr = 0b01001111;
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-	static_assert(sizeof(payload_t) <= PAYLOAD_MAX);
-	payload_t payload = {0};
+	static_assert(sizeof(Payload_t) <= PAYLOAD_MAX);
+	Payload_t payload = {0};
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -90,7 +86,6 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-  HAL_SuspendTick();
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -112,57 +107,11 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
   /* Suspend tick as it is natively source of 1ms the ISR*/
-  //HAL_SuspendTick();
 
   /* Start a timer waking up the MCU*/
-  //WakeUp_TIM_Start();
-
-  /* Go to the sleep mode*/
-  //HAL_PWR_EnterSLEEPMode(0, PWR_SLEEPENTRY_WFI);
-
-  nrfport_powerUp();
-
-  measurements_open();
-
-  if(HAL_OK == HAL_I2C_IsDeviceReady(&hi2c1,
-		  lm75ad_adr << 1, 1, 100))
-  {
-	  printf("SENSOR READY\n");
-  }
-
-  while(1)
-  {
-
-	  uint8_t data[2] = {0};
-
-	  /* Read LM75AD temperature data */
-	  if(HAL_OK == HAL_I2C_Master_Receive(&hi2c1,
-			  lm75ad_adr << 1, data, 2, 100))
-	  {
-		  /* Get internal ADC result */
-		  measurement_get();
-
-		  /* Get two 8-bit values */
-		  uint32_t temp = ((uint32_t)data[0] << 8) | data[1];
-
-		  /* Omit last 5-bits as they are not used*/
-		  temp = temp >> 5;
-
-		  if(temp & (1 << 11))
-		  {
-			  temp = (temp << 7) - (temp << 1) - (temp);
-		  }
-		  else
-		  {
-			  /* Todo finish minus temperature*/
-			  temp = (temp << 7) - (temp << 1) - (temp);
-		  }
-
-		  printf("TMPS %ld\r\n", temp);
-
-	  }
-	  HAL_Delay(1000);
-  }
+  HAL_SuspendTick();
+  WakeUp_TIM_Start();
+  HAL_PWR_EnterSLEEPMode(0, PWR_STOPENTRY_WFI);
 
   /* USER CODE END 2 */
 
@@ -175,62 +124,30 @@ int main(void)
     /* USER CODE BEGIN 3 */
 
 	  /* Disable and reset timer which woke up the processor */
+	  Board_3V3PWR_Up();
+
 	  WakeUp_TIM_Stop();
-	  /* Start ms timer for blocking delay purposes */
+
 	  HAL_ResumeTick();
-	  /* wait until ARM and external sensor boots up */
-	  HAL_Delay(5);
+
 	  /* Start measurements (Automatic DMA, TIM3 triggered) */
 	  measurements_open();
-#ifdef EXT_SENSOR
-	  /* TODO: add external sensor*/
-	  ext_measurements_open();
-#endif
+
 	  /* Power up NRF24L01+ chip */
-	  NRF_powerUp();
 
 	  /* Wait some time to:
 	   * 1) 103ms boot up time for the NRF24L01+
-	   * 2) 1/50Hz*16 = 320ms */
-	  HAL_Delay(350);
+	   * 2) 1/50Hz*48 = 960ms */
+	  HAL_Delay(960);
 
 	  /* Configure NRF as a transmitter */
 	  NRF_configure(true);
 
 	  /* Get measurement when ready*/
+	  measurement_get(&payload);
+	  LM75AD_ReadTempReg(&payload);
 
-#ifdef EXT_SENSOR
-	  /* TODO: add external sensor*/
-	  ext_measurements_get();
-#endif
-
-	  printf("-------------------\r\n");
-	  if(measurement_get(&payload.temp_ntc, &payload.vdda))
-	  {
-		  payload.temp_sens++;
-
-		  DEBUG_PRINT("\r\nch0 %ld\n"
-				  "vrefint %ld\n"
-				  "cycle num %ld\r\n",
-				  payload.temp_ntc,
-				  payload.vdda,
-				  payload.temp_sens);
-
-		  /* Prepare payload for transmitting */
-		  NRF_setW_TX_PAYLOAD((uint8_t*)&payload, sizeof(payload_t));
-	  }
-	  else
-	  {
-		  DEBUG_PRINT("Measurement not ready\r\n");
-
-		  payload.temp_ntc = 0xDEADBEEF;
-		  payload.vdda = 0xDEADBEEF;
-		  payload.temp_sens = 0xDEADBEEF;
-
-		  /* Prepare payload for transmitting - error DEADBEEF constant */
-		  NRF_setW_TX_PAYLOAD((uint8_t*)&payload, sizeof(payload_t));
-
-	  }
+	  NRF_setW_TX_PAYLOAD((uint8_t*)&payload, sizeof(Payload_t));
 
 	  NRF_CEactivate();
 	  HAL_Delay(100);
@@ -239,13 +156,9 @@ int main(void)
 
 	  /* Disable unneeded devices to reduce consumption */
 	  measurements_close();
-#ifdef EXT_SENSOR
-	  /* TODO: add external sensor*/
-	  ext_measurements_clos();
-#endif
 	  HAL_SuspendTick();
-	  NRF_powerDown();
 
+	  Board_3V3PWR_Down();
 	  /* Enable wake-up timer and go to the sleep */
 	  WakeUp_TIM_Start();
 	  HAL_PWR_EnterSLEEPMode(0, PWR_SLEEPENTRY_WFI);
@@ -297,6 +210,15 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+void Board_3V3PWR_Up()
+{
+	HAL_GPIO_WritePin(PWR_3V3_GPIO_Port, PWR_3V3_Pin, GPIO_PIN_RESET);
+}
+
+void Board_3V3PWR_Down()
+{
+	HAL_GPIO_WritePin(PWR_3V3_GPIO_Port, PWR_3V3_Pin, GPIO_PIN_SET);
+}
 /* USER CODE END 4 */
 
 /**
