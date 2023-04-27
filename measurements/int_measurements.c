@@ -11,10 +11,10 @@
 
 #define ADC_BUFFER_SIZE 6*8
 
-#define OA_SENSE 0
+#define OA_SENSE 1
 #define NTC_RESISTANCE 1
 
-/* Datasheet stm32f103cb.pdf, page 78 */
+/* Datasheet stm32f103cb.pdf, page 78 -> internal temperature sensor*/
 #define AVG_SLOPE (uint32_t)(4300) /* Converted to uV/°C */
 #define V25		  (uint32_t)(1430000)    /* Converted to uV */
 
@@ -28,7 +28,8 @@
 const uint32_t VDDA_NOM = 3300;
 const uint32_t ADC_MAX = 4095;
 
-/* Calculated from known VDAA comparing the VDAA calc result */
+/* Calculated from known VDDA comparing the VDAA calculation result
+ * valid only for a unique MCU -> for other needed to be re-defined */
 const uint32_t EST_VREFINT = 1158;
 
 static volatile uint32_t adc_buffer[ADC_BUFFER_SIZE];

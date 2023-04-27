@@ -107,10 +107,10 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
   /* Suspend tick as it is natively source of 1ms the ISR*/
-
-  /* Start a timer waking up the MCU*/
   HAL_SuspendTick();
+  /* Start a timer waking up the MCU*/
   WakeUp_TIM_Start();
+  /* Enter low power mode*/
   HAL_PWR_EnterSLEEPMode(0, PWR_STOPENTRY_WFI);
 
   /* USER CODE END 2 */
@@ -123,11 +123,13 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
-	  /* Disable and reset timer which woke up the processor */
+	  /* Power up all external peripherals (NTCs, LM75AD, NRF24L01+, OAs)*/
 	  Board_3V3PWR_Up();
 
+	  /* Disable and reset timer which woke up the processor */
 	  WakeUp_TIM_Stop();
 
+	  /* Resume the tick necessary for HAL polling functions */
 	  HAL_ResumeTick();
 
 	  /* Start measurements (Automatic DMA, TIM3 triggered) */
@@ -137,30 +139,34 @@ int main(void)
 
 	  /* Wait some time to:
 	   * 1) 103ms boot up time for the NRF24L01+
-	   * 2) 1/50Hz*48 = 960ms */
+	   * 2) 1/50Hz*48 = 960ms ... see IntMeas implementation */
 	  HAL_Delay(960);
 
 	  /* Configure NRF as a transmitter */
 	  NRF_configure(true);
 
-	  /* Get measurement when ready*/
+	  /* Get measurements results */
 	  IntMeas_Get(&payload);
 	  ExtMeas_LM75AD_GetTemp(&payload);
 
+	  /* Prepare NRF24L01+ payload*/
 	  NRF_setW_TX_PAYLOAD((uint8_t*)&payload, sizeof(Payload_t));
 
+	  /* Send payload and check*/
 	  NRF_CEactivate();
 	  HAL_Delay(100);
 	  NRF_CEdeactivate();
 	  DEBUG_PRINT("NRF STATUS: 0x%02x\r\n", NRF_getSTATUS());
 
-	  /* Disable unneeded devices to reduce consumption */
+	  /* Disable internal measurement */
 	  IntMeas_Close();
+	  /* Disable tick to prevent wakeup*/
 	  HAL_SuspendTick();
-
+	  /* Disable all external peripherals*/
 	  Board_3V3PWR_Down();
-	  /* Enable wake-up timer and go to the sleep */
+	  /* Enable wake-up timer*/
 	  WakeUp_TIM_Start();
+	  /* Enter low-power mode*/
 	  HAL_PWR_EnterSLEEPMode(0, PWR_SLEEPENTRY_WFI);
   }
   /* USER CODE END 3 */
