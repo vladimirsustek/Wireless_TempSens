@@ -21,6 +21,7 @@
 #include "adc.h"
 #include "dma.h"
 #include "i2c.h"
+#include "rtc.h"
 #include "spi.h"
 #include "tim.h"
 #include "usart.h"
@@ -46,6 +47,8 @@ typedef Measurement_t Payload_t;
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define STOP_MODE_LENGTH (uint8_t)(58)
+#define TMPE_ATTEMPT_TIMEOUT (uint32_t)(100)
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -63,6 +66,7 @@ void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 void Board_3V3PWR_Up();
 void Board_3V3PWR_Down();
+void Board_SetNextAlarm(uint8_t seconds);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -101,17 +105,19 @@ int main(void)
   MX_SPI1_Init();
   MX_ADC1_Init();
   MX_USART1_UART_Init();
-  MX_TIM1_Init();
   MX_TIM3_Init();
   MX_I2C1_Init();
+  MX_RTC_Init();
   /* USER CODE BEGIN 2 */
 
-  /* Suspend tick as it is natively source of 1ms the ISR*/
+  /* It seems like the STOP mode prevents from a
+   * new connecting to the MCU thus this timeout
+   * shall help when attempting to flash/debug */
+  HAL_Delay(3000);
+  /* Suspend tick as it is natively source of 1ms the ISR
+   * and enter the most low-power STOP mode */
   HAL_SuspendTick();
-  /* Start a timer waking up the MCU*/
-  WakeUp_TIM_Start();
-  /* Enter low power mode*/
-  HAL_PWR_EnterSLEEPMode(0, PWR_STOPENTRY_WFI);
+  HAL_PWR_EnterSTOPMode(PWR_LOWPOWERREGULATOR_ON, PWR_STOPENTRY_WFI);
 
   /* USER CODE END 2 */
 
@@ -123,13 +129,14 @@ int main(void)
 
     /* USER CODE BEGIN 3 */
 
+	  /* Return from the STOP mode needs re-start the all clocks*/
+	  SystemClock_Config();
+
 	  /* Power up all external peripherals (NTCs, LM75AD, NRF24L01+, OAs)*/
 	  Board_3V3PWR_Up();
 
-	  /* Disable and reset timer which woke up the processor */
-	  WakeUp_TIM_Stop();
-
-	  /* Resume the tick necessary for HAL polling functions */
+	  /* Resume the tick necessary for HAL polling functions
+	   * tick comes from the ARM-core */
 	  HAL_ResumeTick();
 
 	  /* Start measurements (Automatic DMA, TIM3 triggered) */
@@ -145,9 +152,20 @@ int main(void)
 	  /* Configure NRF as a transmitter */
 	  NRF_configure(true);
 
-	  /* Get measurements results */
+	  /* Get the external measurements results */
+	  /* Set the tmpe as an error value and try to read the .tmpe
+	   * maximally for the TMPE_ATTEMPT_TIMEOUT, if any valid readout
+	   * is reached, the tmpe will be simply tmpe */
+	  payload.tmpe = INT32_MIN;
+	  uint32_t tick  = HAL_GetTick();
+	  while((payload.tmpe == INT32_MIN) &&
+			  (tick + TMPE_ATTEMPT_TIMEOUT > HAL_GetTick()))
+	  {
+		  ExtMeas_LM75AD_GetTemp(&payload);
+	  }
+
+	  /* Get the internal measurements */
 	  IntMeas_Get(&payload);
-	  ExtMeas_LM75AD_GetTemp(&payload);
 
 	  /* Prepare NRF24L01+ payload*/
 	  NRF_setW_TX_PAYLOAD((uint8_t*)&payload, sizeof(Payload_t));
@@ -160,14 +178,14 @@ int main(void)
 
 	  /* Disable internal measurement */
 	  IntMeas_Close();
-	  /* Disable tick to prevent wakeup*/
-	  HAL_SuspendTick();
 	  /* Disable all external peripherals*/
 	  Board_3V3PWR_Down();
 	  /* Enable wake-up timer*/
-	  WakeUp_TIM_Start();
+	  Board_SetNextAlarm(STOP_MODE_LENGTH);
+	  /* Disable tick to prevent wakeup - tick comes from the ARM-core*/
+	  HAL_SuspendTick();
 	  /* Enter low-power mode*/
-	  HAL_PWR_EnterSLEEPMode(0, PWR_SLEEPENTRY_WFI);
+	  HAL_PWR_EnterSTOPMode(PWR_LOWPOWERREGULATOR_ON, PWR_SLEEPENTRY_WFI);
   }
   /* USER CODE END 3 */
 }
@@ -185,7 +203,8 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_LSE;
+  RCC_OscInitStruct.LSEState = RCC_LSE_ON;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
@@ -207,7 +226,8 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_ADC;
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_RTC|RCC_PERIPHCLK_ADC;
+  PeriphClkInit.RTCClockSelection = RCC_RTCCLKSOURCE_LSE;
   PeriphClkInit.AdcClockSelection = RCC_ADCPCLK2_DIV2;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
@@ -216,15 +236,58 @@ void SystemClock_Config(void)
 }
 
 /* USER CODE BEGIN 4 */
+/* Power up the 3V3 dependent external parts*/
 void Board_3V3PWR_Up()
 {
 	HAL_GPIO_WritePin(PWR_3V3_GPIO_Port, PWR_3V3_Pin, GPIO_PIN_RESET);
 }
-
+/* Power down the 3V3 dependent external parts*/
 void Board_3V3PWR_Down()
 {
 	HAL_GPIO_WritePin(PWR_3V3_GPIO_Port, PWR_3V3_Pin, GPIO_PIN_SET);
 }
+
+/* The empty RTC Callback, used to hit a breakpoint when the RTC interrupt fires */
+void HAL_RTC_AlarmAEventCallback(RTC_HandleTypeDef *hrtc)
+{
+	(void)(hrtc);
+}
+
+/* Set a new alarm, algorithm just checks the RTC's time
+ * and using an appropriate seconds/minutes/hours math
+ * specifies the next time-point to wakeup based on the argument */
+void Board_SetNextAlarm(uint8_t seconds)
+{
+	  RTC_DateTypeDef date = {0};
+	  RTC_TimeTypeDef time = {0};
+	  RTC_AlarmTypeDef alarm = {0};
+
+	  HAL_RTC_GetTime(&hrtc, &time, RTC_FORMAT_BIN);
+	  HAL_RTC_GetDate(&hrtc, &date, RTC_FORMAT_BIN);
+
+	  time.Seconds += seconds;
+	  if(time.Seconds>=60)
+	  {
+	  time.Minutes++;
+	  time.Seconds= time.Seconds -60;
+	  }
+	  if(time.Minutes >= 60)
+	  {
+	  time.Hours++;
+	  time.Minutes = time.Minutes - 60;
+	  }
+	  if(time.Hours > 23)
+	  {
+	  time.Hours = 0;
+	  }
+	  alarm.Alarm = RTC_ALARM_A;
+	  alarm.AlarmTime.Hours = time.Hours;
+	  alarm.AlarmTime.Minutes = time.Minutes;
+	  alarm.AlarmTime.Seconds = time.Seconds;
+
+	  HAL_RTC_SetAlarm_IT(&hrtc, &alarm, RTC_FORMAT_BIN);
+}
+
 /* USER CODE END 4 */
 
 /**
