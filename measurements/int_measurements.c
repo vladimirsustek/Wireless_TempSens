@@ -159,25 +159,25 @@ bool IntMeas_Get(Measurement_t* measurement)
 	curr = (vdda*curr) >> 12;
 	tmpi = (vdda*tmpi) >> 12;
 
-	DEBUG_PRINT("NTC2 %ld\n", (vdda*ntc2) >> 12);
-	DEBUG_PRINT("NTC1 %ld\n", (vdda*ntc1) >> 12);
+	UART_PRINT("NTC2 %ld\n", (vdda*ntc2) >> 12);
+	UART_PRINT("NTC1 %ld\n", (vdda*ntc1) >> 12);
 
 	/* Get interpolated temperature from the NTCs*/
 	ntc2 = getNTCresistance(ntc2, NTC_10K_RREF);
 #if NTC_RESISTANCE
-	DEBUG_PRINT("NTC2 %ld\n", ntc2);
+	UART_PRINT("NTC2 %ld\n", ntc2);
 #endif
 	ntc2 = lookUpNtcTemperature(ntc2);
 	ntc1 = getNTCresistance(ntc1, NTC_10K_RREF);
 #if NTC_RESISTANCE
-	DEBUG_PRINT("NTC1 %ld\n", ntc1);
+	UART_PRINT("NTC1 %ld\n", ntc1);
 #endif
 	ntc1 = lookUpNtcTemperature(ntc1);
 
 	/* Get MCU-internal-sensor temperature */
 	tmpi = ((V25 - tmpi*1000)/AVG_SLOPE) + 25;
 
-	DEBUG_PRINT(
+	UART_PRINT(
 			"NTC2 %ld\n"
 			"NTC1 %ld\n"
 #if OA_SENSE

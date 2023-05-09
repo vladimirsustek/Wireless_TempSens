@@ -17,6 +17,7 @@
 #define DEBUG_PRINT(...)
 #endif
 
+#define UART_PRINT(...) printf(__VA_ARGS__)
 
 #define CLI_BUFF_SIZE (uint32_t)(128)
 

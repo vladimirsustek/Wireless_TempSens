@@ -38,17 +38,40 @@
 #include "nrf24l01p_driver.h"
 #include "int_measurements.h"
 #include "ext_measurements.h"
+
+#include "stm32f1xx_hal_flash.h"
+#include "stm32f1xx_hal_flash_ex.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 typedef Measurement_t Payload_t;
+
+typedef struct NVMdata
+{
+	char tx_adr[6];
+	char rx_adr[6];
+	uint8_t stop_period;
+	const uint8_t padding[3];
+}NVMdata_t;
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define STOP_MODE_LENGTH (uint8_t)(58)
-#define TMPE_ATTEMPT_TIMEOUT (uint32_t)(100)
+#define PARAMETRIZATION_TIMEOUT	(uint32_t)(10*1000)
+#define TMPE_ATTEMPT_TIMEOUT_MS (uint32_t)(100)
+#define STOP_PERIOD_MAX			(uint8_t)(255)
+#define COMMAND_LNG				(uint32_t)(16)
+#define TX_ADR_OFFSET 			(uint32_t)(0)
+#define RX_ADR_OFFSET 			(uint32_t)(6)
+#define ADR_LNG					(uint32_t)(5)
+#define DLMT_1_IDX				(uint32_t)(5)
+#define DLMT_2_IDX				(uint32_t)(11)
+#define UNITS_IDX 				(uint32_t)(14)
+#define TENS_IDX 				(uint32_t)(13)
+#define HUNDREDS_IDX 			(uint32_t)(12)
+#define DELIMITER				(char)(' ')
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -58,7 +81,6 @@ typedef Measurement_t Payload_t;
 /* Private variables ---------------------------------------------------------*/
 
 /* USER CODE BEGIN PV */
-
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -67,6 +89,8 @@ void SystemClock_Config(void);
 void Board_3V3PWR_Up();
 void Board_3V3PWR_Down();
 void Board_SetNextAlarm(uint8_t seconds);
+void NVM_Write(uint32_t*data, uint32_t length);
+void NVM_Read(uint32_t*data, uint32_t length);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -80,8 +104,13 @@ void Board_SetNextAlarm(uint8_t seconds);
 int main(void)
 {
   /* USER CODE BEGIN 1 */
+	/* Maximal length of the payload for the NRF24L01+ is PAYLOAD_MAX*/
 	static_assert(sizeof(Payload_t) <= PAYLOAD_MAX);
+	/* Padding 4 for better uint32_t 'pointing'*/
+	static_assert(sizeof(NVMdata_t) % 4 == 0);
 	Payload_t payload = {0};
+	NVMdata_t data = {0};
+	uint8_t raw_data[COMMAND_LNG] = {0};
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -110,10 +139,51 @@ int main(void)
   MX_RTC_Init();
   /* USER CODE BEGIN 2 */
 
-  /* It seems like the STOP mode prevents from a
-   * new connecting to the MCU thus this timeout
-   * shall help when attempting to flash/debug */
-  HAL_Delay(3000);
+  /* Get NVM data */
+  NVM_Read((uint32_t*)&data, sizeof(NVMdata_t)/4);
+
+  UART_PRINT("LISTENING FOR PARAMETRIZATION %ld ms\n", PARAMETRIZATION_TIMEOUT);
+  UART_PRINT("FORMAT: %s %s %03d\n", data.tx_adr, data.rx_adr, data.stop_period);
+
+  /* Listen for 10 seconds and try to parse the command. This Timeout also
+   * prevents from MCU going into STOP MODE immediately after initialization*/
+  if (HAL_OK == HAL_UART_Receive(&huart1, raw_data, COMMAND_LNG, PARAMETRIZATION_TIMEOUT) &&
+	  (raw_data[DLMT_1_IDX] == DELIMITER &&
+			  raw_data[DLMT_2_IDX] == DELIMITER  &&
+			  isdigit(raw_data[UNITS_IDX]) &&
+			  isdigit(raw_data[TENS_IDX]) &&
+			  isdigit(raw_data[HUNDREDS_IDX])))
+	  {
+	      /* Copy the address */
+		  memcpy(data.tx_adr, raw_data + TX_ADR_OFFSET, ADR_LNG);
+		  memcpy(data.rx_adr, raw_data + RX_ADR_OFFSET, ADR_LNG);
+		  /* Terminate strings */
+		  data.tx_adr[ADR_LNG] = '\0';
+		  data.rx_adr[ADR_LNG] = '\0';
+
+		  /* Covert string to a numbers*/
+		  uint32_t raw = (raw_data[HUNDREDS_IDX] - '0')*100 +
+				  (raw_data[TENS_IDX] - '0')*10 +
+				  (raw_data[UNITS_IDX] - '0');
+
+		  /* Evaluate maximal period length */
+		  data.stop_period = (raw <= STOP_PERIOD_MAX) ? raw : data.stop_period;
+
+		  /* Notify about extracted parameters */
+		  UART_PRINT("TX_ADR %s\n", data.tx_adr);
+		  UART_PRINT("RX_ADR %s\n", data.rx_adr);
+		  UART_PRINT("STOP_PERIOD %d\n", data.stop_period);
+
+		  /* Save to the dedicated place */
+		  NVM_Write((uint32_t*)&data, sizeof(NVMdata_t)/4);
+	  }
+  else
+  {
+	  UART_PRINT("NO CHANGES APPLIED\n");
+  }
+
+  UART_PRINT("NORMAL MODE STARTED\n");
+
   /* Suspend tick as it is natively source of 1ms the ISR
    * and enter the most low-power STOP mode */
   HAL_SuspendTick();
@@ -151,6 +221,8 @@ int main(void)
 
 	  /* Configure NRF as a transmitter */
 	  NRF_configure(true);
+	  NRF_setTX_ADDR((uint8_t*)data.tx_adr, ADR_LNG);
+	  NRF_setRX_ADDR_P0((uint8_t*)data.rx_adr, ADR_LNG);
 
 	  /* Get the external measurements results */
 	  /* Set the tmpe as an error value and try to read the .tmpe
@@ -159,7 +231,7 @@ int main(void)
 	  payload.tmpe = INT32_MIN;
 	  uint32_t tick  = HAL_GetTick();
 	  while((payload.tmpe == INT32_MIN) &&
-			  (tick + TMPE_ATTEMPT_TIMEOUT > HAL_GetTick()))
+			  (tick + TMPE_ATTEMPT_TIMEOUT_MS > HAL_GetTick()))
 	  {
 		  ExtMeas_LM75AD_GetTemp(&payload);
 	  }
@@ -174,14 +246,14 @@ int main(void)
 	  NRF_CEactivate();
 	  HAL_Delay(100);
 	  NRF_CEdeactivate();
-	  DEBUG_PRINT("NRF STATUS: 0x%02x\r\n", NRF_getSTATUS());
+	  UART_PRINT("NRF STATUS: 0x%02x\r\n", NRF_getSTATUS());
 
 	  /* Disable internal measurement */
 	  IntMeas_Close();
 	  /* Disable all external peripherals*/
 	  Board_3V3PWR_Down();
 	  /* Enable wake-up timer*/
-	  Board_SetNextAlarm(STOP_MODE_LENGTH);
+	  Board_SetNextAlarm(data.stop_period);
 	  /* Disable tick to prevent wakeup - tick comes from the ARM-core*/
 	  HAL_SuspendTick();
 	  /* Enter low-power mode*/
@@ -286,6 +358,52 @@ void Board_SetNextAlarm(uint8_t seconds)
 	  alarm.AlarmTime.Seconds = time.Seconds;
 
 	  HAL_RTC_SetAlarm_IT(&hrtc, &alarm, RTC_FORMAT_BIN);
+}
+
+
+void NVM_Write(uint32_t*data, uint32_t length)
+{
+	/* RM0008 Reference manual (STM32F103C8T6 datasheet), page 55*/
+	/* [Flash-Page 127 0x0801FC00 - 0x0801FFFF] 1KB/page */
+	const uint32_t PAGE_127_ADR = 0x800FC00;
+	const uint32_t MAX_LENGTH = 1024;
+	uint32_t adr = PAGE_127_ADR;
+
+	FLASH_EraseInitTypeDef erase = {0};
+	uint32_t error = 0;
+
+	assert(data != NULL && length <= MAX_LENGTH);
+
+	assert(HAL_OK == HAL_FLASH_Unlock());
+	assert(HAL_OK == HAL_FLASH_OB_Unlock());
+
+	erase.NbPages = 1;
+	erase.TypeErase = FLASH_TYPEERASE_PAGES;
+	erase.PageAddress = PAGE_127_ADR;
+
+	assert(HAL_OK == HAL_FLASHEx_Erase(&erase, &error));
+
+	for(uint32_t idx = 0; idx < length; idx++)
+	{
+		HAL_FLASH_Program(FLASH_TYPEPROGRAM_WORD, adr, (uint32_t)*data);
+		(uint32_t*)data++;
+		adr += 4;
+	}
+
+	assert(HAL_OK == HAL_FLASH_Lock());
+	assert(HAL_OK == HAL_FLASH_OB_Lock());
+}
+
+void NVM_Read(uint32_t*data, uint32_t length)
+{
+	/* RM0008 Reference manual (STM32F103C8T6 datasheet), page 55*/
+	/* [Flash-Page 127 0x0801FC00 - 0x0801FFFF] 1KB/page */
+	const uint32_t PAGE_127_ADR = 0x800FC00;
+	const uint32_t MAX_LENGTH = 1024;
+
+	assert(data != NULL && length <= MAX_LENGTH);
+
+	memcpy(data, (uint32_t*)PAGE_127_ADR, length*4);
 }
 
 /* USER CODE END 4 */

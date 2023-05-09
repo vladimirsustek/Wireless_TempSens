@@ -64,7 +64,7 @@ int32_t temperature = INT32_MIN;
 		  }
 	  }
 
-	  DEBUG_PRINT("TMPE %ld\n", temperature);
+	  UART_PRINT("TMPE %ld\n", temperature);
 	  measurement->tmpe = temperature;
 
 	  return temperature;
