@@ -91,6 +91,7 @@ void Board_3V3PWR_Down();
 void Board_SetNextAlarm(uint8_t seconds);
 void NVM_Write(uint32_t*data, uint32_t length);
 void NVM_Read(uint32_t*data, uint32_t length);
+int NVM_Parametrization(NVMdata_t* data);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -110,7 +111,6 @@ int main(void)
 	static_assert(sizeof(NVMdata_t) % 4 == 0);
 	Payload_t payload = {0};
 	NVMdata_t data = {0};
-	uint8_t raw_data[COMMAND_LNG] = {0};
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -147,37 +147,7 @@ int main(void)
 
   /* Listen for 10 seconds and try to parse the command. This Timeout also
    * prevents from MCU going into STOP MODE immediately after initialization*/
-  if (HAL_OK == HAL_UART_Receive(&huart1, raw_data, COMMAND_LNG, PARAMETRIZATION_TIMEOUT) &&
-	  (raw_data[DLMT_1_IDX] == DELIMITER &&
-			  raw_data[DLMT_2_IDX] == DELIMITER  &&
-			  isdigit(raw_data[UNITS_IDX]) &&
-			  isdigit(raw_data[TENS_IDX]) &&
-			  isdigit(raw_data[HUNDREDS_IDX])))
-	  {
-	      /* Copy the address */
-		  memcpy(data.tx_adr, raw_data + TX_ADR_OFFSET, ADR_LNG);
-		  memcpy(data.rx_adr, raw_data + RX_ADR_OFFSET, ADR_LNG);
-		  /* Terminate strings */
-		  data.tx_adr[ADR_LNG] = '\0';
-		  data.rx_adr[ADR_LNG] = '\0';
-
-		  /* Covert string to a numbers*/
-		  uint32_t raw = (raw_data[HUNDREDS_IDX] - '0')*100 +
-				  (raw_data[TENS_IDX] - '0')*10 +
-				  (raw_data[UNITS_IDX] - '0');
-
-		  /* Evaluate maximal period length */
-		  data.stop_period = (raw <= STOP_PERIOD_MAX) ? raw : data.stop_period;
-
-		  /* Notify about extracted parameters */
-		  UART_PRINT("TX_ADR %s\n", data.tx_adr);
-		  UART_PRINT("RX_ADR %s\n", data.rx_adr);
-		  UART_PRINT("STOP_PERIOD %d\n", data.stop_period);
-
-		  /* Save to the dedicated place */
-		  NVM_Write((uint32_t*)&data, sizeof(NVMdata_t)/4);
-	  }
-  else
+  if (!NVM_Parametrization(&data))
   {
 	  UART_PRINT("NO CHANGES APPLIED\n");
   }
@@ -360,6 +330,47 @@ void Board_SetNextAlarm(uint8_t seconds)
 	  HAL_RTC_SetAlarm_IT(&hrtc, &alarm, RTC_FORMAT_BIN);
 }
 
+int NVM_Parametrization(NVMdata_t* data)
+{
+	uint8_t raw_data[COMMAND_LNG] = {0};
+
+	if(HAL_OK == HAL_UART_Receive(&huart1, raw_data, COMMAND_LNG, PARAMETRIZATION_TIMEOUT) &&
+		  (raw_data[DLMT_1_IDX] == DELIMITER &&
+				  raw_data[DLMT_2_IDX] == DELIMITER  &&
+				  isdigit(raw_data[UNITS_IDX]) &&
+				  isdigit(raw_data[TENS_IDX]) &&
+				  isdigit(raw_data[HUNDREDS_IDX])))
+		  {
+		      /* Copy the address */
+			  memcpy(data->tx_adr, raw_data + TX_ADR_OFFSET, ADR_LNG);
+			  memcpy(data->rx_adr, raw_data + RX_ADR_OFFSET, ADR_LNG);
+			  /* Terminate strings */
+			  data->tx_adr[ADR_LNG] = '\0';
+			  data->rx_adr[ADR_LNG] = '\0';
+
+			  /* Covert string to a numbers*/
+			  uint32_t raw = (raw_data[HUNDREDS_IDX] - '0')*100 +
+					  (raw_data[TENS_IDX] - '0')*10 +
+					  (raw_data[UNITS_IDX] - '0');
+
+			  /* Evaluate maximal period length */
+			  data->stop_period = (raw <= STOP_PERIOD_MAX) ? raw : data->stop_period;
+
+			  /* Notify about extracted parameters */
+			  UART_PRINT("TX_ADR %s\n", data->tx_adr);
+			  UART_PRINT("RX_ADR %s\n", data->rx_adr);
+			  UART_PRINT("STOP_PERIOD %d\n", data->stop_period);
+
+			  /* Save to the dedicated place */
+			  NVM_Write((uint32_t*)data, sizeof(NVMdata_t)/4);
+
+			  return 1;
+		  }
+	else
+	{
+		return 0;
+	}
+}
 
 void NVM_Write(uint32_t*data, uint32_t length)
 {
