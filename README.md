@@ -21,7 +21,7 @@ This project has default structure for STM's [STM32CudeIDE](https://www.st.com/e
 .Download this free IDE to build the project.<br/>
 **The project utilizes default STM's HAL drivers**<br/>
 
-To see complete PCB design, see "PCB_design" directory.
+To see complete PCB design, see "PCB_design" directory, or at least the [schematic](/PCB_design/Wireless_TempSens.pdf)
 
 <h2>Battery operating low-power temperature sensor</h2>
 
