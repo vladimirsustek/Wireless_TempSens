@@ -92,6 +92,8 @@ void Board_SetNextAlarm(uint8_t seconds);
 void NVM_Write(uint32_t*data, uint32_t length);
 void NVM_Read(uint32_t*data, uint32_t length);
 int NVM_Parametrization(NVMdata_t* data);
+void RTC_DisableDefaultAlarm();
+void I2C_ReInitialize();
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -139,6 +141,8 @@ int main(void)
   MX_RTC_Init();
   /* USER CODE BEGIN 2 */
 
+  /* Disable the default Alarm coming from the MX_RTC_Init()*/
+  RTC_DisableDefaultAlarm();
   /* Get NVM data */
   NVM_Read((uint32_t*)&data, sizeof(NVMdata_t)/4);
 
@@ -153,12 +157,6 @@ int main(void)
   }
 
   UART_PRINT("NORMAL MODE STARTED\n");
-
-  /* Suspend tick as it is natively source of 1ms the ISR
-   * and enter the most low-power STOP mode */
-  HAL_SuspendTick();
-  HAL_PWR_EnterSTOPMode(PWR_LOWPOWERREGULATOR_ON, PWR_STOPENTRY_WFI);
-
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -168,10 +166,10 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-
+	  /* I2C Malfunctioned after loosing 3V3 rail voltages */
+	  I2C_ReInitialize();
 	  /* Return from the STOP mode needs re-start the all clocks*/
 	  SystemClock_Config();
-
 	  /* Power up all external peripherals (NTCs, LM75AD, NRF24L01+, OAs)*/
 	  Board_3V3PWR_Up();
 
@@ -188,7 +186,6 @@ int main(void)
 	   * 1) 103ms boot up time for the NRF24L01+
 	   * 2) 1/50Hz*48 = 960ms ... see IntMeas implementation */
 	  HAL_Delay(960);
-
 	  /* Configure NRF as a transmitter */
 	  NRF_configure(true);
 	  NRF_setTX_ADDR((uint8_t*)data.tx_adr, ADR_LNG);
@@ -417,6 +414,18 @@ void NVM_Read(uint32_t*data, uint32_t length)
 	memcpy(data, (uint32_t*)PAGE_127_ADR, length*4);
 }
 
+
+void RTC_DisableDefaultAlarm()
+{
+	assert(HAL_OK == HAL_RTC_DeactivateAlarm(&hrtc, 0));
+}
+
+void I2C_ReInitialize()
+{
+	  HAL_I2C_MspDeInit(&hi2c1);
+	  assert(HAL_OK == HAL_I2C_DeInit(&hi2c1));
+	  MX_I2C1_Init();
+}
 /* USER CODE END 4 */
 
 /**
